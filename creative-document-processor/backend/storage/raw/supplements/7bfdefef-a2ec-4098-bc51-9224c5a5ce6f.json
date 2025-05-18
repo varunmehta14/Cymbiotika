@@ -1,0 +1,26 @@
+{
+  "id": "7bfdefef-a2ec-4098-bc51-9224c5a5ce6f",
+  "title": "Magnesium L-Threonate Supplement",
+  "url": "0.0.0.0/products/mock-magnesium-l-threonate",
+  "price": "$65.00",
+  "img_url": "https://placehold.co/400x400/png?text=Supplement",
+  "description": "This is a demo Magnesium L-Threonate supplement. Created for testing purposes.",
+  "ingredients": [
+    "Ingredient 1",
+    "Ingredient 2",
+    "Ingredient 3"
+  ],
+  "benefits": [
+    "Benefit 1",
+    "Benefit 2",
+    "Benefit 3"
+  ],
+  "directions": "Take as directed on the label.",
+  "categories": [
+    "Supplements",
+    "Wellness"
+  ],
+  "raw_html": null,
+  "scraped_at": "2025-05-17T17:23:35.445189",
+  "metadata": {}
+}

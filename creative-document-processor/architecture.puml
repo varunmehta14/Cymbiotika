@@ -1,0 +1,50 @@
+@startuml Architecture
+
+!define RECTANGLE class
+
+RECTANGLE User {
+  + Browser
+}
+
+RECTANGLE Frontend {
+  + Next.js 14
+  + React 18
+  + TypeScript
+  + Tailwind
+}
+
+RECTANGLE Backend {
+  + FastAPI
+  + LangGraph Agents
+}
+
+RECTANGLE LangGraphPipeline {
+  + Parser
+  + Creative
+  + ScraperTool
+}
+
+RECTANGLE LLM {
+  + "Google Gemini 2 Flash"
+  + "LangChain Integration"
+}
+
+RECTANGLE Scraper {
+  + "Playwright Python"
+  + "Headless Chromium"
+}
+
+RECTANGLE Storage {
+  + "Chroma Vector DB"
+  + "Document Storage"
+}
+
+User <--> Frontend : HTTP/SSE
+Frontend <--> Backend : API Calls/SSE
+Backend <--> LangGraphPipeline
+LangGraphPipeline <--> LLM
+LangGraphPipeline <--> Scraper
+Scraper --> Storage
+LLM <--> Storage : Embeddings/Retrieval
+
+@enduml 

@@ -1,0 +1,26 @@
+{
+  "id": "4c634b2d-6645-4b84-a7d0-791db8c91e32",
+  "title": "Probiotic Formula Supplement",
+  "url": "0.0.0.0/products/mock-probiotic-formula",
+  "price": "$55.00",
+  "img_url": "https://placehold.co/400x400/png?text=Supplement",
+  "description": "This is a demo Probiotic Formula supplement. Created for testing purposes.",
+  "ingredients": [
+    "Ingredient 1",
+    "Ingredient 2",
+    "Ingredient 3"
+  ],
+  "benefits": [
+    "Benefit 1",
+    "Benefit 2",
+    "Benefit 3"
+  ],
+  "directions": "Take as directed on the label.",
+  "categories": [
+    "Supplements",
+    "Wellness"
+  ],
+  "raw_html": null,
+  "scraped_at": "2025-05-17T17:23:35.445330",
+  "metadata": {}
+}

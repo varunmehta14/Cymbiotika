@@ -1,0 +1,17 @@
+fastapi
+uvicorn
+python-multipart
+aiofiles
+aiohttp
+pydantic
+pydantic-settings
+langchain-core
+langchain-google-genai
+langgraph
+chromadb
+sentence-transformers
+beautifulsoup4
+PyPDF2
+playwright
+pytest
+mypy 
