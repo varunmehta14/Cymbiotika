@@ -27,14 +27,12 @@ async def query_knowledge_base(request: QueryRequest, req: Request):
     Returns:
         StreamingResponse: Streaming response with query results
     """
-    # Set up the stream queue for streaming results
-    queue = asyncio.Queue()
+    print(f"Received query request: {request}")
     
-    # Process query in background
-    async def process_query():
+    async def event_generator():
         try:
             # Stream initial status
-            await queue.put("Processing query...")
+            yield encode_sse_event("Processing query...")
             
             # Check if Google API key is available
             if not settings.GOOGLE_API_KEY or settings.GOOGLE_API_KEY == "":
@@ -46,6 +44,7 @@ async def query_knowledge_base(request: QueryRequest, req: Request):
                 kb_type = request.kb
                 prompt = request.prompt
                 
+                # Use our mock answers dictionary
                 mock_answers = {
                     "recipes": {
                         "ingredients": "The main ingredients in this recipe are flour, sugar, eggs, butter, and vanilla extract. It also includes optional ingredients like chocolate chips or nuts for added flavor.",
@@ -72,7 +71,13 @@ async def query_knowledge_base(request: QueryRequest, req: Request):
                 # Determine which type of answer to provide based on the query
                 answer_type = "detail"  # default
                 
-                if any(keyword in prompt.lower() for keyword in ["ingredient", "what's in", "contain"]):
+                if any(keyword in prompt.lower() for keyword in ["skill", "capable", "ability"]):
+                    answer_type = "skills"
+                elif any(keyword in prompt.lower() for keyword in ["experience", "work", "history"]):
+                    answer_type = "experience"
+                elif any(keyword in prompt.lower() for keyword in ["education", "degree", "university"]):
+                    answer_type = "education"
+                elif any(keyword in prompt.lower() for keyword in ["ingredient", "what's in", "contain"]):
                     answer_type = "ingredients"
                 elif any(keyword in prompt.lower() for keyword in ["step", "how to", "procedure", "instruction"]):
                     answer_type = "steps"
@@ -86,28 +91,26 @@ async def query_knowledge_base(request: QueryRequest, req: Request):
                     answer_type = "authentication"
                 elif any(keyword in prompt.lower() for keyword in ["example", "sample", "demo"]):
                     answer_type = "examples"
-                elif any(keyword in prompt.lower() for keyword in ["skill", "capable", "ability"]):
-                    answer_type = "skills"
-                elif any(keyword in prompt.lower() for keyword in ["experience", "work", "history"]):
-                    answer_type = "experience"
-                elif any(keyword in prompt.lower() for keyword in ["education", "degree", "university"]):
-                    answer_type = "education"
                 
                 # Get the answer or use a default response
                 if kb_type in mock_answers and answer_type in mock_answers[kb_type]:
                     answer = mock_answers[kb_type][answer_type]
                 else:
-                    answer = f"Based on the document in the {kb_type} knowledge base, I can provide the following information related to your query about '{prompt}': This is a mock response as no Google API key was provided for the LLM."
+                    answer = f"Based on the document in the {kb_type} knowledge base, I can provide the following information related to your query about '{prompt}': This is a mock response for demonstration purposes."
+                
+                print(f"Generated answer: {answer[:50]}...")
                 
                 # Stream words with small delay to simulate LLM
                 words = answer.split()
                 for i in range(0, len(words), 3):
-                    chunk = " ".join(words[i:i+3])
-                    await queue.put(chunk + " ")
+                    chunk = " ".join(words[i:i+3]) + " "
+                    print(f"Yielding chunk: {chunk}")
+                    yield encode_sse_event(chunk)
                     await asyncio.sleep(0.2)  # Small delay between chunks
                 
                 # Send final result
-                await queue.put({
+                print("Yielding final complete event")
+                yield encode_sse_event({
                     "status": "complete", 
                     "answer": answer,
                     "sources": [{
@@ -119,77 +122,71 @@ async def query_knowledge_base(request: QueryRequest, req: Request):
             else:
                 # Run the actual agent if API key is available
                 try:
-                    print(f"Starting agent run for query: {request.prompt}, kb: {request.kb}, doc_id: {request.doc_id}")
+                    print(f"Starting agent run with Google API key: {request.prompt}, kb: {request.kb}, doc_id: {request.doc_id}")
                     
-                    # Send intermediate message to help client debugging
-                    await queue.put("Agent started processing...")
+                    # Create a queue to receive events from the agent
+                    queue = asyncio.Queue()
                     
-                    result = await run_agent(
+                    # Start the agent in a background task
+                    task = asyncio.create_task(run_agent(
                         query=request.prompt,
                         kb_type=request.kb,
                         document_id=request.doc_id,
                         stream_callback=lambda event: queue.put(event)
-                    )
+                    ))
                     
-                    print(f"Agent completed. Result keys: {result.keys() if result else 'None'}")
-                    
-                    # Stream final result
-                    if result and "final_answer" in result:
-                        await queue.put({
-                            "status": "complete", 
-                            "answer": result["final_answer"],
-                            "sources": [chunk["metadata"] for chunk in result.get("retrieved_chunks", [])]
-                        })
-                    else:
-                        # Fall back to mock response if agent doesn't return a final answer
-                        print("No final answer in result, using mock response")
-                        await queue.put({
-                            "status": "complete",
-                            "answer": f"Based on the document in the {request.kb} knowledge base, I can analyze your query about '{request.prompt}'. This is a mock response as the AI agent did not return a complete answer.",
-                            "sources": []
-                        })
+                    # Process events from the queue
+                    while True:
+                        if task.done():
+                            # Check if the task raised an exception
+                            if task.exception():
+                                yield encode_sse_event({
+                                    "status": "error",
+                                    "message": str(task.exception())
+                                })
+                            
+                            # Get the final result
+                            result = task.result()
+                            
+                            # Yield the final answer
+                            if result and "final_answer" in result:
+                                yield encode_sse_event({
+                                    "status": "complete",
+                                    "answer": result["final_answer"],
+                                    "sources": [chunk["metadata"] for chunk in result.get("retrieved_chunks", [])]
+                                })
+                            else:
+                                yield encode_sse_event({
+                                    "status": "error",
+                                    "message": "No results found."
+                                })
+                            
+                            break
+                        
+                        # Get message from queue with timeout
+                        try:
+                            message = await asyncio.wait_for(queue.get(), timeout=0.1)
+                            yield encode_sse_event(message)
+                        except asyncio.TimeoutError:
+                            # No message available, continue
+                            continue
+                        
                 except Exception as e:
                     print(f"Error in agent execution: {str(e)}")
-                    await queue.put({
+                    yield encode_sse_event({
                         "status": "error",
                         "message": f"Error in agent execution: {str(e)}"
                     })
                 
         except Exception as e:
             # Stream error
-            await queue.put({"status": "error", "message": str(e)})
-            
-        # Signal completion
-        await queue.put(None)
+            print(f"Error in query processing: {str(e)}")
+            yield encode_sse_event({
+                "status": "error", 
+                "message": str(e)
+            })
     
-    # Start processing in a background task
-    asyncio.create_task(process_query())
-    
-    # Set up streaming response
-    async def event_generator():
-        # Handle client disconnecting
-        disconnect = asyncio.create_task(req.is_disconnected())
-        
-        while True:
-            # Check if client disconnected
-            if disconnect.done():
-                break
-                
-            # Get next message from queue with timeout
-            try:
-                message = await asyncio.wait_for(queue.get(), timeout=1.0)
-            except asyncio.TimeoutError:
-                # No message available, continue
-                continue
-                
-            # Check if this is the completion signal
-            if message is None:
-                break
-                
-            # Yield the message as an SSE event
-            yield encode_sse_event(message)
-    
-    # Return SSE streaming response
+    # Return streaming response
     return StreamingResponse(
         event_generator(),
         media_type="text/event-stream",
@@ -213,14 +210,12 @@ async def rewrite_supplement(request: SupplementRewriteRequest, req: Request):
     Returns:
         StreamingResponse: Streaming response with rewritten content
     """
-    # Set up the stream queue
-    queue = asyncio.Queue()
+    print(f"Received rewrite request: {request}")
     
-    # Process rewrite in background
-    async def process_rewrite():
+    async def event_generator():
         try:
             # Stream initial status
-            await queue.put("Analyzing product for rewriting...")
+            yield encode_sse_event("Analyzing product for rewriting...")
             
             # Check if Google API key is available
             if not settings.GOOGLE_API_KEY or settings.GOOGLE_API_KEY == "":
@@ -251,15 +246,19 @@ async def rewrite_supplement(request: SupplementRewriteRequest, req: Request):
                 else:
                     rewrite = f"This supplement has been reformulated to reflect a {tone} tone while maintaining all factual information about its benefits, ingredients, and usage instructions. This is a mock response as no Google API key was provided for the LLM."
                 
+                print(f"Generated rewrite in {tone} tone: {rewrite[:50]}...")
+                
                 # Stream words with small delay to simulate LLM
                 words = rewrite.split()
                 for i in range(0, len(words), 3):
-                    chunk = " ".join(words[i:i+3])
-                    await queue.put(chunk + " ")
+                    chunk = " ".join(words[i:i+3]) + " "
+                    print(f"Yielding chunk: {chunk}")
+                    yield encode_sse_event(chunk)
                     await asyncio.sleep(0.2)  # Small delay between chunks
                 
                 # Send final result
-                await queue.put({
+                print("Yielding final complete event")
+                yield encode_sse_event({
                     "status": "complete", 
                     "rewritten": rewrite,
                     "original_doc_id": doc_id
@@ -268,62 +267,62 @@ async def rewrite_supplement(request: SupplementRewriteRequest, req: Request):
                 # Create a specific query for rewriting
                 query = f"Rewrite the product description in a {request.tone} tone. Make it persuasive but factual."
                 
-                # Run the agent
-                result = await run_agent(
+                # Create a queue to receive events from the agent
+                queue = asyncio.Queue()
+                
+                # Start the agent in a background task
+                task = asyncio.create_task(run_agent(
                     query=query,
                     kb_type="supplements",
                     document_id=request.doc_id,
                     stream_callback=lambda event: queue.put(event)
-                )
+                ))
                 
-                # Stream final result
-                if result and "final_answer" in result:
-                    await queue.put({
-                        "status": "complete", 
-                        "rewritten": result["final_answer"],
-                        "original_doc_id": request.doc_id
-                    })
-                else:
-                    await queue.put({
-                        "status": "error",
-                        "message": "Rewrite failed. No results found."
-                    })
+                # Process events from the queue
+                while True:
+                    if task.done():
+                        # Check if the task raised an exception
+                        if task.exception():
+                            yield encode_sse_event({
+                                "status": "error",
+                                "message": str(task.exception())
+                            })
+                        
+                        # Get the final result
+                        result = task.result()
+                        
+                        # Yield the final answer
+                        if result and "final_answer" in result:
+                            yield encode_sse_event({
+                                "status": "complete",
+                                "rewritten": result["final_answer"],
+                                "original_doc_id": request.doc_id
+                            })
+                        else:
+                            yield encode_sse_event({
+                                "status": "error",
+                                "message": "Rewrite failed. No results found."
+                            })
+                        
+                        break
+                    
+                    # Get message from queue with timeout
+                    try:
+                        message = await asyncio.wait_for(queue.get(), timeout=0.1)
+                        yield encode_sse_event(message)
+                    except asyncio.TimeoutError:
+                        # No message available, continue
+                        continue
                 
         except Exception as e:
             # Stream error
-            await queue.put({"status": "error", "message": str(e)})
-            
-        # Signal completion
-        await queue.put(None)
+            print(f"Error in rewrite processing: {str(e)}")
+            yield encode_sse_event({
+                "status": "error", 
+                "message": str(e)
+            })
     
-    # Start processing in a background task
-    asyncio.create_task(process_rewrite())
-    
-    # Set up streaming response
-    async def event_generator():
-        # Handle client disconnecting
-        disconnect = asyncio.create_task(req.is_disconnected())
-        
-        while True:
-            # Check if client disconnected
-            if disconnect.done():
-                break
-                
-            # Get next message from queue with timeout
-            try:
-                message = await asyncio.wait_for(queue.get(), timeout=1.0)
-            except asyncio.TimeoutError:
-                # No message available, continue
-                continue
-                
-            # Check if this is the completion signal
-            if message is None:
-                break
-                
-            # Yield the message as an SSE event
-            yield encode_sse_event(message)
-    
-    # Return SSE streaming response
+    # Return streaming response
     return StreamingResponse(
         event_generator(),
         media_type="text/event-stream",
