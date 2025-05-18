@@ -1,55 +1,69 @@
-# Python virtual environment
-**/myenv/
-**/venv/
-**/.env
-**/.venv/
-**/ENV/
-**/.virtualenv/
+######################################
+# Python virtual‑envs
+######################################
+myenv/
+venv*/
+ENV/
+.virtualenv*/
+.venv*/
 
-# Node.js dependencies
-**/node_modules/
-**/npm-debug.log
-**/yarn-debug.log
-**/yarn-error.log
-**/.pnp/
-**/.pnp.js
+######################################
+# Node dependencies / Next.js build
+######################################
+node_modules/
+.npm/              # npm cache (rarely appears)
+.pnp*/
+# Next.js artefacts
+.next/
+out/               # if you export static HTML
+dist/
+build/
 
-# Distribution / packaging
-**/dist/
-**/build/
-**/*.egg-info/
-**/.next/
+######################################
+# Large native libs & runtime blobs
+######################################
+*.dylib
+*.so
+*.node
+*.pdb              # Windows debug libs
+*.onnx
+*.pt               # PyTorch models
+*.bin
 
-# Data and large files
-**/storage/
-**/raw/
-**/.data/
-**/*.dylib
-**/*.so
-**/*.node
+######################################
+# Data & runtime storage
+######################################
+storage/
+raw/
+.data/
+logs/
+*.log
 
-# Environment variables
-**/.env
-**/.env.local
-**/.env.development.local
-**/.env.test.local
-**/.env.production.local
+######################################
+# Environment & config
+######################################
+.env*
+!.env.template     # keep the template
 
-# IDE and editor files
-**/.idea/
-**/.vscode/
-**/.DS_Store
-**/*.swp
-**/*.swo
+######################################
+# Caches & byte‑code
+######################################
+__pycache__/
+*.py[cod]
+.cache/
+.pytest_cache/
+coverage/
+*.cover
+*.coverage
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
 
-# Logs
-**/logs/
-**/*.log
-
-# Cache files
-**/__pycache__/
-**/*.py[cod]
-**/*$py.class
-**/.cache/
-**/.pytest_cache/
-**/.coverage 
+######################################
+# IDE / OS cruft
+######################################
+.idea/
+.vscode/
+.DS_Store
+*.swp
+*.swo
