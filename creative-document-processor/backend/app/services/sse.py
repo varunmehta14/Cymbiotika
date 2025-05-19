@@ -3,7 +3,8 @@ Server-Sent Events (SSE) implementation for streaming responses.
 """
 import json
 import asyncio
-from typing import Any, Dict, List, Optional, AsyncGenerator
+import uuid
+from typing import Any, Dict, List, Optional, AsyncGenerator, Callable
 
 from fastapi import Request
 from starlette.responses import StreamingResponse
@@ -33,6 +34,93 @@ def encode_sse_event(data: Any, event_type: str = "message") -> str:
     
     message += "\n"
     return message
+
+
+class SSEGenerator:
+    """
+    Generator for SSE events with a unique ID.
+    """
+    def __init__(self):
+        self.id = str(uuid.uuid4())
+        self._queue = asyncio.Queue()
+        self._closed = False
+    
+    async def put(self, data: str):
+        """Add data to the queue."""
+        if not self._closed:
+            await self._queue.put(data)
+    
+    async def close(self):
+        """Close the generator."""
+        self._closed = True
+        await self._queue.put(None)  # Signal end
+    
+    async def iterator(self):
+        """Return an async iterator for the queue."""
+        while not self._closed:
+            try:
+                data = await self._queue.get()
+                if data is None:  # End signal
+                    break
+                yield data
+            except Exception as e:
+                yield encode_sse_event({"error": str(e)}, "error")
+                break
+
+
+class SSEManager:
+    """
+    Manager for server-sent events connections.
+    """
+    def __init__(self):
+        self._generators: Dict[str, SSEGenerator] = {}
+    
+    def create_generator(self) -> SSEGenerator:
+        """
+        Create a new SSE generator.
+        
+        Returns:
+            SSEGenerator: New generator with unique ID
+        """
+        generator = SSEGenerator()
+        self._generators[generator.id] = generator
+        return generator
+    
+    async def send_event(self, generator_id: str, data: str):
+        """
+        Send an event to a specific generator.
+        
+        Args:
+            generator_id: Generator ID
+            data: Data to send
+        """
+        if generator_id in self._generators:
+            await self._generators[generator_id].put(data)
+    
+    async def broadcast(self, data: str):
+        """
+        Broadcast an event to all generators.
+        
+        Args:
+            data: Data to send
+        """
+        for generator in self._generators.values():
+            await generator.put(data)
+    
+    async def close_connection(self, generator_id: str):
+        """
+        Close a specific connection.
+        
+        Args:
+            generator_id: Generator ID to close
+        """
+        if generator_id in self._generators:
+            await self._generators[generator_id].close()
+            del self._generators[generator_id]
+
+
+# Create a singleton instance
+sse_manager = SSEManager()
 
 
 async def generate_sse_stream(

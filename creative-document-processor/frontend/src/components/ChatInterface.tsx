@@ -2,6 +2,7 @@
 
 import React, { useState, useRef, useEffect } from "react";
 import { Send, Loader, MessageSquare, PenSquare } from "lucide-react";
+import ReactMarkdown from "react-markdown";
 
 type ChatMessage = {
   role: "user" | "assistant" | "system";
@@ -262,13 +263,21 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({ kb, documentId }) => {
                     : "bg-gray-100 mr-8"
                 }`}
               >
-                <p className="text-sm whitespace-pre-wrap">{message.content}</p>
+                {message.role === "assistant" ? (
+                  <div className="text-sm markdown-content">
+                    <ReactMarkdown>{message.content}</ReactMarkdown>
+                  </div>
+                ) : (
+                  <p className="text-sm whitespace-pre-wrap">{message.content}</p>
+                )}
               </div>
             ))}
             
             {isStreamingResponse && currentStreamedMessage && (
               <div className="p-3 rounded-lg bg-gray-100 mr-8">
-                <p className="text-sm whitespace-pre-wrap">{currentStreamedMessage}</p>
+                <div className="text-sm markdown-content">
+                  <ReactMarkdown>{currentStreamedMessage}</ReactMarkdown>
+                </div>
               </div>
             )}
           </>

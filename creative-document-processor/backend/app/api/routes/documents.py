@@ -5,13 +5,16 @@ from typing import Dict, List, Optional, Any
 from pathlib import Path
 import mimetypes
 import logging
+import json
 
-from fastapi import APIRouter, HTTPException, Response
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi import APIRouter, HTTPException, Response, Request, Body, BackgroundTasks
+from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 
 from app.models.document import KnowledgeBaseType
 from app.services.document_processor import get_document, list_documents
 from app.core.config import settings
+from app.services.langgraph_agent import run_agent, compare_resumes_to_job
+from app.services.sse import sse_manager, encode_sse_event
 
 router = APIRouter()
 
@@ -114,4 +117,64 @@ async def list_kb_documents(kb: str):
         raise HTTPException(
             status_code=500,
             detail=f"Error listing documents: {str(e)}"
-        ) 
+        )
+
+
+@router.post("/compare-resumes", response_model=Dict[str, Any])
+async def compare_resumes(
+    request: Request,
+    job_description: str = Body(..., embed=True),
+    document_ids: Optional[List[str]] = Body(None, embed=True),
+):
+    """
+    Compare multiple resumes against a job description and return ranked candidates.
+    
+    Args:
+        job_description: The job description to match against
+        document_ids: Optional list of resume document IDs to compare (if None, all resumes will be used)
+        
+    Returns:
+        Dict[str, Any]: Results with ranked candidates
+    """
+    # Create event generator for streaming responses
+    generator = sse_manager.create_generator()
+    background_tasks = BackgroundTasks()
+    
+    # Run the comparison in the background
+    async def run_comparison():
+        try:
+            # Set up stream callback
+            async def stream_callback(data: str):
+                await sse_manager.send_event(generator.id, data)
+            
+            # Run the resume comparison
+            result = await compare_resumes_to_job(
+                job_description=job_description,
+                document_ids=document_ids,
+                stream_callback=stream_callback
+            )
+            
+            # Send the final result and close the connection
+            await sse_manager.send_event(
+                generator.id,
+                encode_sse_event(json.dumps({"result": result}), event="result")
+            )
+            await sse_manager.close_connection(generator.id)
+        except Exception as e:
+            # Handle errors
+            error_message = f"Error comparing resumes: {str(e)}"
+            await sse_manager.send_event(
+                generator.id,
+                encode_sse_event(json.dumps({"error": error_message}), event="error")
+            )
+            await sse_manager.close_connection(generator.id)
+    
+    # Add task to background tasks
+    background_tasks.add_task(run_comparison)
+    
+    # Return streaming response
+    return StreamingResponse(
+        generator.iterator(),
+        media_type="text/event-stream",
+        background=background_tasks
+    ) 

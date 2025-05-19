@@ -147,4 +147,55 @@ async def delete_document(doc_id: str, kb_name: str) -> int:
     # Delete the chunks
     collection.delete(ids=results["ids"])
     
-    return len(results["ids"]) 
+    return len(results["ids"])
+
+
+async def get_all_documents(
+    kb_name: str,
+    filter_dict: Optional[Dict[str, Any]] = None,
+    limit: int = 20
+) -> List[Dict[str, Any]]:
+    """
+    Retrieve all documents from a knowledge base with optional filtering.
+    
+    Args:
+        kb_name: The name of the knowledge base
+        filter_dict: Optional dictionary for filtering documents
+        limit: Maximum number of documents to retrieve
+    
+    Returns:
+        List[Dict[str, Any]]: List of document chunks
+    """
+    try:
+        # Get the collection - get_collection is not async so don't use await
+        collection = get_collection(kb_name)
+        
+        # Build filter condition if provided
+        filter_condition = None
+        if filter_dict:
+            # Convert filter dict to appropriate filter condition
+            if "document_ids" in filter_dict and filter_dict["document_ids"]:
+                filter_condition = {"document_id": {"$in": filter_dict["document_ids"]}}
+            elif "document_id" in filter_dict and filter_dict["document_id"]:
+                filter_condition = {"document_id": filter_dict["document_id"]}
+        
+        # Query all documents with the filter - get method is not async
+        results = collection.get(
+            where=filter_condition,
+            limit=limit
+        )
+        
+        # Format the results
+        chunks = []
+        if results["ids"]:
+            for i, doc_id in enumerate(results["ids"]):
+                chunks.append({
+                    "id": doc_id,
+                    "document": results["documents"][i],
+                    "metadata": results["metadatas"][i] if "metadatas" in results and i < len(results["metadatas"]) else {}
+                })
+        
+        return chunks
+    except Exception as e:
+        print(f"Error retrieving all documents: {str(e)}")
+        return [] 

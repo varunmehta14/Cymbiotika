@@ -345,6 +345,185 @@ async def creative_node(state: AgentState, stream_callback=None) -> AgentState:
     }
 
 
+# Node 5: Candidate Ranking Node
+async def candidate_ranking_node(state: AgentState, stream_callback=None) -> AgentState:
+    """
+    Candidate ranking node for comparing multiple documents and providing scored matches.
+    
+    This node specializes in resume-to-job matching with detailed scoring and explanation.
+    
+    Args:
+        state: Current agent state
+        stream_callback: Optional streaming callback
+        
+    Returns:
+        AgentState: Updated agent state with ranked candidates
+    """
+    # Stream status update
+    if stream_callback:
+        await stream_callback(encode_sse_event("Ranking candidates against job requirements..."))
+    
+    # Initialize the LLM
+    llm = get_llm()
+    
+    # Extract job description and candidate information
+    job_description = state["query"]
+    candidates = state["parsed_chunks"]
+    
+    # Skip if no candidates found
+    if not candidates:
+        return {
+            **state,
+            "final_answer": "No candidate resumes found to compare against the job description."
+        }
+    
+    # Define evaluation criteria based on common job requirements
+    system_prompt = """
+    You are an expert HR recruiter specializing in candidate evaluation.
+    
+    Analyze each candidate resume against the job description using these criteria:
+    1. Skills Match (30%): Technical and soft skills alignment with requirements
+    2. Experience Relevance (30%): Relevance and depth of past work experience  
+    3. Education & Certifications (20%): Required educational background and credentials
+    4. Culture & Team Fit (10%): Values and work style compatibility indicators
+    5. Career Trajectory (10%): Growth pattern and future potential alignment
+    
+    For each candidate, provide:
+    - An overall match score (0-100)
+    - Individual scores for each criterion (0-100)
+    - Brief justification for each score
+    - Key strengths relative to the position
+    - Potential gaps or areas of concern
+    
+    Rank all candidates from highest to lowest overall match.
+    """
+    
+    # Compare all candidates against the job description
+    ranking_messages = [
+        SystemMessage(content=system_prompt),
+        HumanMessage(content=f"""
+        Job Description:
+        {job_description}
+        
+        Candidate Resumes:
+        {json.dumps([{
+            "id": c["id"],
+            "name": c["metadata"].get("name", f"Candidate {i+1}"),
+            "resume_summary": c["summary"]
+        } for i, c in enumerate(candidates)], indent=2)}
+        
+        Please evaluate and rank these candidates against the job description.
+        """)
+    ]
+    
+    # Run LLM for ranking
+    if stream_callback:
+        await stream_callback(encode_sse_event("Evaluating candidate matches and generating detailed scoring..."))
+    
+    ranking_response = await llm.ainvoke(ranking_messages)
+    ranking_output = ranking_response.content
+    
+    return {
+        **state,
+        "creative_output": ranking_output,
+        "final_answer": ranking_output
+    }
+
+
+# Public API function for resume comparison
+async def compare_resumes_to_job(
+    job_description: str,
+    document_ids: Optional[List[str]] = None,
+    stream_callback=None
+) -> Dict[str, Any]:
+    """
+    Compare multiple resumes against a job description and rank the candidates.
+    
+    Args:
+        job_description: The job description to match against
+        document_ids: Optional list of specific resume document IDs to compare
+                     (if None, all resumes in the knowledge base will be used)
+        stream_callback: Optional streaming callback
+        
+    Returns:
+        Dict[str, Any]: Ranking results with scored candidates
+    """
+    try:
+        if stream_callback:
+            await stream_callback(encode_sse_event("Starting candidate evaluation process..."))
+        
+        # Create a specialized workflow for candidate ranking
+        workflow = StateGraph(AgentState)
+        
+        # Add nodes to the specialized graph
+        workflow.add_node("retrieval", functools.partial(retrieval_node, stream_callback=stream_callback))
+        workflow.add_node("parser", functools.partial(parser_node, stream_callback=stream_callback))
+        workflow.add_node("ranking", functools.partial(candidate_ranking_node, stream_callback=stream_callback))
+        
+        # Define edges for the resume comparison flow
+        workflow.add_edge("retrieval", "parser")
+        workflow.add_edge("parser", "ranking")
+        workflow.add_edge("ranking", END)
+        
+        # Set the entry point
+        workflow.set_entry_point("retrieval")
+        
+        # Compile the graph
+        agent = workflow.compile()
+        
+        # Prepare filter for document IDs if provided
+        filter_dict = {"document_ids": document_ids} if document_ids else None
+        
+        # Initialize the agent state with a higher number of results to compare multiple resumes
+        initial_state = AgentState(
+            kb_type=KnowledgeBaseType.RESUMES.value,
+            query=job_description,
+            document_id=None,  # We'll handle multiple documents in the retrieval node
+            retrieved_chunks=[],
+            parsed_chunks=[],
+            creative_output=None,
+            final_answer=None,
+            scraper_needed=False,
+            scraper_query=None
+        )
+        
+        # Override the retrieval node for this specific use case to fetch multiple resumes
+        if not document_ids:
+            # Query the vector store with a broad search to get multiple resumes
+            if stream_callback:
+                await stream_callback(encode_sse_event("Retrieving all relevant resumes from knowledge base..."))
+                
+            # Import here to avoid circular imports
+            from app.services.vector_store import get_all_documents
+                
+            # Get all resumes from the knowledge base (or implement a specialized function)
+            chunks = await get_all_documents(
+                kb_name=KnowledgeBaseType.RESUMES.value,
+                filter_dict=filter_dict,
+                limit=20  # Reasonable limit to prevent overloading
+            )
+            
+            initial_state["retrieved_chunks"] = chunks
+        
+        # Run the agent
+        result = await agent.ainvoke(initial_state)
+        
+        return result
+    except Exception as e:
+        print(f"Error in resume comparison: {str(e)}")
+        return {
+            "kb_type": KnowledgeBaseType.RESUMES.value,
+            "query": job_description,
+            "document_id": None,
+            "retrieved_chunks": [],
+            "parsed_chunks": [],
+            "creative_output": f"An error occurred during resume comparison: {str(e)}",
+            "final_answer": f"An error occurred during resume comparison: {str(e)}",
+            "scraper_needed": False,
+            "scraper_query": None
+        }
+
+
 # Build the LangGraph
 def build_agent_graph(stream_callback=None):
     """
