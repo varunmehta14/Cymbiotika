@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { Inter, Poppins } from "next/font/google";
+import Link from "next/link";
 import "./globals.css";
 
 // Load fonts
@@ -34,7 +35,7 @@ export default function RootLayout({
             <div className="flex justify-between h-16">
               <div className="flex items-center">
                 <div className="flex-shrink-0 flex items-center">
-                  <div className="flex items-center gap-2">
+                  <Link href="/" className="flex items-center gap-2 hover:opacity-90 transition-opacity">
                     <div className="bg-white h-10 w-10 rounded-lg flex items-center justify-center shadow-md glow-sm animate-pulse-slow">
                       <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6 text-transparent bg-clip-text bg-gradient-to-r from-primary-600 to-secondary-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
@@ -43,7 +44,7 @@ export default function RootLayout({
                     <h1 className="text-xl font-bold text-white font-poppins drop-shadow-sm animate-slide-in-bottom" style={{ animationDelay: "100ms" }}>
                       Creative Document Processor
                     </h1>
-                  </div>
+                  </Link>
                 </div>
               </div>
               <div className="flex items-center">
